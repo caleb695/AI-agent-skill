@@ -1,79 +1,137 @@
 # Relentless
 
-An [Agent Skills](https://agentskills.io)-compatible skill for persistent, self-improving, and evidence-verified AI-agent execution.
+A persistent, self-improving AI-agent skill with **executable enforcement**, not just prompting.
 
-Relentless tells an agent to keep making useful progress until every requirement is verified or the user explicitly stops, pauses, or redirects the task. It is designed to prevent three common failure modes: giving up too early, repeating the same failed approach indefinitely, and gaining experience without learning from it.
+Relentless combines an [Agent Skills](https://agentskills.io)-compatible `SKILL.md` with a standard-library Python controller and a Claude Code Stop hook. The agent continues until every requirement passes the controller's completion gate or the user explicitly stops, pauses, or redirects the task.
 
-## What the skill enforces
+## Why this is stronger than a prompt-only skill
 
-- **No voluntary give-up response.** Errors, dead ends, uncertainty, and even suspected impossibility trigger diagnosis and another approach—not a final “I couldn't.”
-- **Adaptive retries.** An attempt ledger records what failed and why. Repeated failure within one strategy family triggers a meaningful change in source, tool, hypothesis, decomposition, or implementation.
-- **Continuous improvement.** The agent predicts outcomes before acting, compares expectations with observations, extracts scoped lessons, and applies them to later decisions. A new attempt must be better informed, not merely different.
-- **Process-level learning.** Recurring failures trigger meta-reviews that can improve the problem model, strategy, reusable tooling, or verification checks—not just the next individual attempt.
-- **Learning that survives long tasks.** The agent checkpoints its ledgers when the host provides an appropriate mechanism, and never claims cross-session memory without durable storage.
-- **Requirement-level completion.** The agent builds a checklist from the original request and does not silently drop constraints or pass off a close match as success.
-- **Thorough verification.** Claims require inspected evidence, code requires relevant checks, and important contradictions must be investigated.
-- **Current information.** Time-sensitive claims are checked against live or recently updated sources; stale pages and search snippets are not treated as proof of the present.
-- **Honest status.** The agent must never invent progress, tests, citations, or completion. If the user stops the work, the agent can report an unresolved checkpoint without calling it done.
+| Layer | What it does |
+| --- | --- |
+| Runtime Stop hook | On supported Claude Code versions, blocks a normal stop when the invoked skill has no task state, requirements remain unresolved, a review is required, or completion has not been recorded. |
+| Durable state machine | Persists requirements, attempts, observations, scoped lessons, reviews, verification, stop, and completion across tool calls and context compaction. |
+| Completion gate | Refuses completion with missing evidence, unverified requirements, stale current-source checks, open attempts, or mandatory reviews. |
+| Real verification commands | Optionally reruns a requirement's actual test or check command at completion. A failure or timeout reopens that requirement. |
+| Retry enforcement | Rejects an exact strategy-and-change pair that already failed and prevents overlapping attempts. |
+| Improvement enforcement | Requires structured meta-reviews after repeated failures or prolonged lack of verified progress before another attempt can start. |
+| Audit trail | Uses atomic JSON state writes and an append-only JSONL event log instead of relying on conversational memory. |
+| Reasoning playbook | Guides failure diagnosis, strategy changes, source inspection, freshness checks, and honest reporting. |
 
-For website-discovery requests, the skill specifically requires a candidate-by-requirement matrix. A website is a match only when **every** mandatory requirement has current supporting evidence.
+The controller cannot independently judge arbitrary natural-language evidence, so the agent must still be honest when supplying observations and sources. It **can** deterministically prevent missing state, skipped evidence fields, stale checks, repeated failed attempts, unrecorded reviews, and premature completion—and it can execute real checks for testable requirements.
+
+## Repository layout
+
+```text
+SKILL.md                    Skill instructions and Claude Code Stop-hook registration
+scripts/relentless.py       Durable controller and executable gates
+scripts/stop_hook.py        Runtime Stop enforcement backed by controller state
+tests/test_relentless.py    End-to-end CLI and hook tests
+```
+
+## Requirements
+
+- Python 3.10 or newer; no third-party Python packages are required.
+- For automatic runtime Stop enforcement: a Claude Code version that supports hooks in skill frontmatter.
+- Other Agent Skills hosts can use the controller directly, but do not provide the Claude Code hook's runtime enforcement unless they implement an equivalent integration.
 
 ## Installation
 
-The repository root is the skill directory; [`SKILL.md`](SKILL.md) contains the complete skill. Install it in any agent that supports the Agent Skills format by copying it into a skill directory named `relentless`.
+Install the **whole skill**, including `scripts/`. Copying only `SKILL.md` leaves out the enforcement layer.
 
 ### Claude Code: project scope
 
 Run from the project where you want the skill available:
 
 ```sh
+tmp="$(mktemp -d)"
+curl -fsSL https://codeload.github.com/caleb695/AI-agent-skill/tar.gz/refs/heads/main \
+  | tar -xz -C "$tmp"
 mkdir -p .claude/skills/relentless
-curl -fsSL https://raw.githubusercontent.com/caleb695/AI-agent-skill/main/SKILL.md \
-  -o .claude/skills/relentless/SKILL.md
+cp -R "$tmp/AI-agent-skill-main/." .claude/skills/relentless/
+rm -r "$tmp"
 ```
 
-Commit `.claude/skills/relentless/SKILL.md` to share it with everyone working on that project.
+Commit `.claude/skills/relentless/` to share the skill with the project. Invoke it explicitly with `/relentless` or ask the agent to use the relentless skill. The Stop hook registers when the skill is invoked and remains registered for that session.
 
 ### Claude Code: personal scope
 
 ```sh
+tmp="$(mktemp -d)"
+curl -fsSL https://codeload.github.com/caleb695/AI-agent-skill/tar.gz/refs/heads/main \
+  | tar -xz -C "$tmp"
 mkdir -p ~/.claude/skills/relentless
-curl -fsSL https://raw.githubusercontent.com/caleb695/AI-agent-skill/main/SKILL.md \
-  -o ~/.claude/skills/relentless/SKILL.md
+cp -R "$tmp/AI-agent-skill-main/." ~/.claude/skills/relentless/
+rm -r "$tmp"
 ```
 
 ### Other compatible agents
 
-Copy `SKILL.md` to `<your-skills-directory>/relentless/SKILL.md`, then follow the agent's skill discovery or reload instructions. If the agent does not select the skill automatically, invoke it explicitly:
+Copy the repository's `SKILL.md` and `scripts/` directory into `<your-skills-directory>/relentless/`, then follow the host's skill discovery instructions. Use the actual bundled script path when running controller commands. The skill remains useful without hook support, but the agent must accurately acknowledge that runtime Stop enforcement is unavailable.
 
-```text
-Use the relentless skill to find a currently available website that meets all of these requirements: ...
+## Controller workflow
+
+The skill instructs the agent to use this workflow, and the CLI returns machine-readable JSON after every command:
+
+1. `init` — create an active task with the user's actual objective.
+2. `requirement-add` — register each atomic requirement and its required evidence.
+3. `attempt-start` — record strategy, hypothesis, prediction, and meaningful change before acting.
+4. `attempt-end` — record outcome, observation, cause, scoped lesson, and evidence after acting.
+5. `review` — satisfy a mandatory improvement gate with patterns, assumptions, stop/start/keep decisions, a probe, and ranked next actions.
+6. `requirement-verify` — attach inspected evidence; current-sensitive requirements also need sources and a freshness note.
+7. `status` — inspect unresolved gates whenever resuming or after context compaction.
+8. `complete` — finish only when all static gates and registered verification commands pass.
+
+Use `requirement-unverify` when new evidence invalidates an earlier verification. Use `resume` only for a user-stopped task the user wants to continue.
+
+### Example with an explicit state file
+
+```sh
+python3 scripts/relentless.py --state /tmp/my-task.json init \
+  --objective "Implement and verify the requested feature"
+
+python3 scripts/relentless.py --state /tmp/my-task.json requirement-add \
+  --id R1 \
+  --description "The requested behavior passes its regression test" \
+  --evidence-required "A passing run of the focused regression test" \
+  --check-command "python3 -m pytest tests/test_feature.py -q"
 ```
 
-The skill governs behavior within an agent session. It cannot override host-enforced execution limits or grant tools and permissions the agent does not have.
+Global options such as `--state` and `--session` come **before** the subcommand. Run `python3 scripts/relentless.py --help` or `<command> --help` for the complete interface.
 
-## Example behavior
+### Verification-command security
 
-For a request to find a website with six requirements, the agent should:
+`--check-command` is a shell command executed in the original task workspace when `complete` runs, with a 120-second timeout. Register only trusted commands the agent is permitted to execute. Never construct one from untrusted web content or treat the controller as a sandbox. Captured output is limited to the last 4,000 characters per stream and stored with the check result.
 
-1. Turn all six requirements and exclusions into a checklist.
-2. Before each attempt, predict what the search or inspection should reveal and why.
-3. Inspect candidates directly instead of trusting snippets.
-4. Record unknown and failed requirements honestly.
-5. Compare predictions with results, extract a specific lesson, and update the search model.
-6. When searches stall, review patterns across attempts and change the query, source class, decomposition, language, or discovery method based on those lessons.
-7. If repeated manual checking is the bottleneck, create a reusable checklist or small tool without weakening verification.
-8. Recheck a successful candidate's live site and current evidence before calling it a match.
-9. Continue with a better-informed approach if no fully verified match has been found and the user has not stopped the task.
+## State and user control
 
-## Skill design
+By default, state is stored outside the project:
 
-`SKILL.md` is self-contained and uses only portable Markdown and Agent Skills frontmatter. It defines:
+- With a session ID: a session-specific file under the Relentless state directory.
+- Without one: a workspace-specific file.
+- Default state directory: `$XDG_STATE_HOME/relentless` when set, otherwise `~/.local/state/relentless`.
+- `RELENTLESS_STATE_HOME` overrides the state directory; `RELENTLESS_STATE` or `--state` selects an exact file.
 
-1. a requirement ledger and explicit definition of done;
-2. an inspect → predict → act → verify → learn → improve loop;
-3. failure diagnosis and anti-repetition rules;
-4. micro-retrospectives, knowledge ledgers, an improvement ladder, and stall-triggered meta-reviews;
-5. research, debugging, and complex-task strategy families;
-6. coverage, evidence, correctness, and freshness checks; and
-7. strict truthfulness rules for learning, progress, completion, and user-requested checkpoints.
+State files and audit logs are written with owner-only permissions. Do not put secrets in objectives, evidence, commands, or notes.
+
+For an explicit conversational stop, the agent records:
+
+```sh
+python3 scripts/relentless.py --session "<session-id>" stop \
+  --user-request "The user's explicit stop, pause, or redirect"
+```
+
+This also works before task initialization, preserving user control. A physical user interrupt does not depend on the controller or hook.
+
+## Runtime-enforcement limits
+
+The Stop hook checks durable state instead of trusting a final “done” message. It deliberately continues to block hook-driven continuations until the agent uses tools to resolve the gates or record completion. Claude Code's own continuation limits, permissions, tool availability, and execution limits still apply; the skill does not bypass them. A host-forced interruption must be reported honestly and never relabeled as successful completion.
+
+## Tests
+
+Run the standard-library test suite:
+
+```sh
+python3 -m unittest discover -s tests -v
+```
+
+The tests exercise the real CLI and Stop-hook subprocesses, including successful completion, missing evidence, current-source freshness, executable check failure, duplicate retries, mandatory reviews, state persistence, user stop/resume, missing or damaged state, and unrelated-session isolation.

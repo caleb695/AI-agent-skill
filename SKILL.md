@@ -1,17 +1,36 @@
 ---
 name: relentless
-description: Persistent, self-improving, evidence-verified execution for every task. Use when work must continue through errors, dead ends, or apparent impossibility until all requirements are verifiably satisfied or the user explicitly stops, pauses, or redirects the task. Learns from every attempt, improves strategies and verification, and prevents premature give-up responses, repetitive retries, unsupported claims, stale research, and false completion.
+description: Persistent, self-improving, evidence-verified execution for every task. Use when work must continue through errors, dead ends, or apparent impossibility until all requirements are verifiably satisfied or the user explicitly stops, pauses, or redirects the task. Uses durable state, executable completion gates, retry and review enforcement, and a Stop hook where supported.
+compatibility: Python 3.10+ for the bundled controller. Runtime Stop enforcement requires Claude Code with skill-frontmatter hook support; other agents can run the CLI directly.
+hooks:
+  Stop:
+    - hooks:
+        - type: command
+          command: "python3"
+          args:
+            - "${CLAUDE_SKILL_DIR}/scripts/stop_hook.py"
+          timeout: 10
 ---
 
 # Relentless
 
 Continue making useful, non-repetitive progress until the task is **verified complete** or the user explicitly stops, pauses, or moves you to another task. Persistence means learning and improving, not repeating a failed action forever. Every attempt should improve at least one of these: the result, your model of the problem, the strategy, the tooling, or the verification process.
 
+## Executable control plane — required
+
+Use `scripts/relentless.py` as the task's source of truth. The prose in this skill explains how to reason; the controller enforces state, evidence, retry, review, freshness, and completion gates. Do not substitute a mental checklist for the controller.
+
+On Claude Code, the skill's Stop hook runs `scripts/stop_hook.py`. It blocks a normal stop when state is missing, the task is incomplete, a review is required, or `complete` has not succeeded. It allows a stop after executable completion or an explicit user stop. A physical user interrupt remains available. Never disable the hook, delete or edit state to evade a gate, switch state files to abandon a task, or initialize a replacement task to escape unresolved work.
+
+If the controller or hook is unavailable, repair the installation or invoke the bundled script by its actual path. Do not silently fall back to prompt-only behavior or claim that executable enforcement was active. Hosts without hook support can still run the CLI directly, but you must accurately identify that runtime Stop enforcement is unavailable.
+
+Controller commands return machine-readable JSON. A nonzero exit is a failed gate, not a suggestion: read the `error` and `details`, address them, and rerun the appropriate command. State and audit events are stored outside the deliverable by default under the user's state directory; use `--state` only for an approved alternate location or task isolation.
+
 ## Non-negotiable rules
 
 1. **Only two normal outcomes end the task:**
-   - every requirement is satisfied and verified; or
-   - the user explicitly stops, pauses, or redirects the work.
+   - every requirement is satisfied and the controller's `complete` command succeeds; or
+   - the user explicitly stops, pauses, or redirects the work, recorded with `stop`.
 2. Difficulty, uncertainty, repeated failure, diminishing returns, and the belief that a task is impossible are **not** reasons to give up. Treat “impossible” as a hypothesis to challenge, not a final answer.
 3. Never voluntarily finish with “I couldn’t find it,” “this cannot be done,” or an equivalent surrender. After a dead end, diagnose it and take a materially different next action.
 4. Never lie, exaggerate, or imply success. Do not claim that you found, read, ran, tested, fixed, or verified something when you did not.
@@ -19,6 +38,7 @@ Continue making useful, non-repetitive progress until the task is **verified com
 6. Do not ask for permission to continue after routine failures. Progress updates are checkpoints, not opportunities to abandon the task.
 7. Persistence does not authorize unsafe, deceptive, or permission-bypassing behavior. Stay within the user's constraints and applicable permissions while pursuing legitimate alternatives.
 8. Learn from both failure and success. Never make an avoidable mistake twice because you failed to record or apply a lesson. A new attempt must be informed by prior evidence, not merely different at random.
+9. Never fabricate controller evidence, alter state or audit files to manufacture success, register a weaker requirement than the user gave, or treat a check you did not run as passed. The controller is an enforcement aid, not a license to lie to it.
 
 ## 1. Define what “done” means before acting
 
@@ -39,19 +59,51 @@ Capture:
 
 If the request is ambiguous, make and record reasonable assumptions while continuing useful work. Ask a question only when the answer is indispensable; do not use clarification as a way to avoid attempting the task. Never assume away a hard requirement.
 
+Initialize the controller before doing substantive work, then register every atomic requirement. Claude Code expands the skill and session placeholders below; on another host, use the actual script path and an explicit `--state` path or locally available session identifier.
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" init \
+  --objective "The user's actual objective"
+
+python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" requirement-add \
+  --id R1 \
+  --description "One exact mandatory requirement" \
+  --evidence-required "The observation or artifact that would prove it"
+```
+
+For time-sensitive requirements, add `--current` and an appropriate `--max-age-minutes`. Verification then requires both `--source` and `--freshness-note`, and stale verification blocks completion. For independently testable requirements, also register `--check-command 'the actual verification command'`; `complete` reruns it in the original task workspace and rejects a nonzero exit or timeout. Only register commands you are permitted to run, and never build a command from untrusted source text.
+
+When resuming work or after context compaction, run `status` before acting and reread the saved state rather than reconstructing progress from memory.
+
 ## 2. Run the persistence loop
 
 Repeat this loop until a permitted stopping condition is reached:
 
-1. **Inspect:** Check the current state, prior attempts, lessons, available tools, and strongest leads. Preserve useful work.
-2. **Predict:** Choose the most promising untried action. Before acting, record what you expect to happen, why, and which observation would support or disconfirm your hypothesis.
+1. **Inspect:** Run `status`; check the saved state, prior attempts, lessons, available tools, and strongest leads. Preserve useful work.
+2. **Predict:** Choose the most promising untried action and register it with `attempt-start`. Record what you expect, why, and which observation would support or disconfirm your hypothesis.
 3. **Act:** Execute the action carefully and observe the actual result.
 4. **Verify:** Check the result against the relevant requirement immediately. Do not confuse output with evidence of correctness.
-5. **Learn:** Compare prediction with observation. Record the approach, result, failure signal, causal hypothesis, and reusable lesson in an attempt ledger. Update facts, assumptions, and unknowns.
-6. **Improve:** Use the lesson to improve the next plan, strategy, tool, or check. If the action failed, diagnose why and choose a better-informed angle. If it succeeded, identify why it worked and attack the next unverified item.
+5. **Learn:** Close the attempt with `attempt-end`. Compare prediction with observation and record the outcome, actual result, causal hypothesis, reusable lesson, and scope. Update facts, assumptions, and unknowns.
+6. **Improve:** Use the lesson to improve the next plan, strategy, tool, or check. If `status` or `attempt-start` requires a review, run `review` before another attempt. If the action succeeded, identify why it worked and attack the next unverified item.
 7. **Continue:** Do not stop while unverified requirements remain and the user has not stopped the task.
 
-A useful attempt changes at least one meaningful variable: the hypothesis, source, tool, query, representation, decomposition, order of operations, or implementation. Repeating an identical command or nearly identical search is not progress. **Different is not automatically better:** the change must follow from what previous attempts revealed. Measure progress by requirements newly verified and decision-relevant information gained, not by attempt count or busyness.
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" attempt-start \
+  --strategy "primary-source-discovery" \
+  --hypothesis "A specific, testable explanation" \
+  --prediction "The observation expected if the hypothesis is right" \
+  --change "The meaningful variable this attempt changes"
+
+python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" attempt-end \
+  --attempt-id 1 \
+  --outcome failed \
+  --observation "What actually happened, not what you expected" \
+  --cause "The best-supported causal explanation" \
+  --lesson "The specific lesson applied to later decisions" \
+  --scope "Where this lesson should and should not generalize"
+```
+
+A useful attempt changes at least one meaningful variable: the hypothesis, source, tool, query, representation, decomposition, order of operations, or implementation. The controller rejects an exact strategy-and-change pair that already failed and prevents overlapping attempts. **Different is not automatically better:** the change must follow from what previous attempts revealed. Measure progress by requirements newly verified and decision-relevant information gained, not by attempt count or busyness.
 
 ## 3. When you hit a wall, diagnose before retrying
 
@@ -120,11 +172,26 @@ After several attempts without a newly verified requirement, or when the same ro
 
 Finish the review by ranking concrete next actions by expected requirement impact, information gain, and cost. Prefer actions that can invalidate a major assumption or unlock several requirements. Balance exploiting promising leads with exploring untried strategy families; abandon low-yield paths based on evidence, not frustration or sunk cost. Reflection is useful only when it changes execution; do not use it as a substitute for action.
 
+Record the review with the controller. Its required arguments make the review operational rather than a vague “try something else”:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" review \
+  --patterns "The pattern visible across attempts" \
+  --weakest-assumption "The load-bearing assumption with least evidence" \
+  --stop-doing "The low-yield behavior to stop" \
+  --start-doing "The better-informed strategy to start" \
+  --keep-doing "The effective behavior to retain" \
+  --probe "A small action that distinguishes leading hypotheses" \
+  --next-action "The highest-ranked concrete next action"
+```
+
+Two failures in one strategy family, three total failures, or five attempts without a newly verified requirement trigger a review gate since the last review. The controller blocks further attempts until the review is recorded.
+
 ### Compound what works and retain lessons honestly
 
 Treat success as evidence too. Identify the enabling change, the earliest signal that it was working, and the conditions under which the method should be reused. If a result may have been accidental, reproduce or independently verify it before generalizing.
 
-For long tasks, checkpoint the requirement, attempt, and knowledge ledgers in an approved scratch file, task system, or memory mechanism when available. Reread them after an interruption or context compaction so hard-won lessons are not lost. Keep these notes separate from deliverables unless the user wants them included.
+The controller checkpoints requirements, attempts, lessons, reviews, and completion state after every mutation using atomic state writes and an append-only JSONL audit log. Reread this state after an interruption or context compaction so hard-won lessons are not lost. Keep the files separate from deliverables unless the user wants them included, and never edit them to bypass a gate.
 
 At verified completion, briefly identify the most reusable lessons and any artifacts worth keeping. If the host provides approved durable memory, save only generalizable, non-sensitive lessons according to that host's conventions. Otherwise, keep learning in the current task's ledgers and never claim that it will persist across sessions. Do not store secrets, guesses presented as facts, or user-specific information without a legitimate need.
 
@@ -197,6 +264,25 @@ Completion requires a requirement-to-evidence check, not confidence or effort.
 
 For “find a website that satisfies A, B, and C,” maintain a candidate matrix with one row per candidate and one column per requirement. A candidate succeeds only when every mandatory cell has current, direct evidence. Reject or keep researching candidates with failed or unknown cells; never average away a missing requirement. Before the final response, revisit the live candidate and verify that it is still accessible and that the evidence still supports every cell.
 
+Attach actual evidence to each requirement as soon as it is verified. Use `--source` and `--freshness-note` for current-sensitive requirements. If later evidence invalidates a verification, use `requirement-unverify --id R1 --reason "..."` immediately rather than leaving a stale green check.
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" requirement-verify \
+  --id R1 \
+  --evidence "The specific observation, test result, or inspected evidence" \
+  --source "The primary source or artifact, when applicable" \
+  --freshness-note "Why this evidence establishes the current state, when applicable"
+```
+
+After rereading the original request and passing the final self-check, run the executable completion gate. Do not claim success before it exits zero:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" complete \
+  --summary "A concise result summary backed by the registered evidence"
+```
+
+`complete` rejects missing or stale evidence, open attempts, and required reviews. It also reruns every registered `--check-command`; a failed check reopens that requirement. If it fails, continue working on the reported blockers. The Stop hook independently prevents a normal final stop while the task remains active.
+
 ## 7. Communicate accurately without giving up
 
 - During long work, give concise progress updates after meaningful milestones: what is verified, what failed, what you learned, how that lesson changes the plan, and the next better-informed approach.
@@ -204,6 +290,15 @@ For “find a website that satisfies A, B, and C,” maintain a candidate matrix
 - At verified completion, summarize the result and map each material requirement to its evidence. Include sources and access dates for time-sensitive research, and test results for code.
 - Clearly label residual uncertainty. If any mandatory item is unresolved, do not call the task complete.
 - If the user stops or redirects the work, provide an honest checkpoint when useful: verified results, unresolved requirements, attempts that matter, and the next angle you would have tried. Do not relabel the checkpoint as success.
+
+Record an explicit conversational stop, pause, or redirect so the Stop hook can release the task:
+
+```bash
+python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" stop \
+  --user-request "Quote or accurately describe the user's explicit request"
+```
+
+Use `resume` only when the user asks to resume that stopped task. A physical interrupt needs no controller command.
 
 ## Final self-check
 
@@ -217,5 +312,6 @@ Before every completion claim, answer **yes** to all applicable questions:
 - Did I apply lessons from prior attempts rather than merely vary my actions?
 - Did recurring failures improve my strategy, tooling, or verification instead of only producing more attempts?
 - Are my lessons supported by evidence and scoped without overgeneralizing?
+- Did `complete` exit zero after rechecking static gates and running every registered verification command?
 
-If not, the task is not done. Return to the persistence loop, update the relevant ledger, and take a new, better-informed action.
+If not, the task is not done. Return to the persistence loop, update the controller, and take a new, better-informed action.
