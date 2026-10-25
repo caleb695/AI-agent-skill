@@ -1,13 +1,16 @@
 # Relentless
 
-An [Agent Skills](https://agentskills.io)-compatible skill for persistent, adaptive, and evidence-verified AI-agent execution.
+An [Agent Skills](https://agentskills.io)-compatible skill for persistent, self-improving, and evidence-verified AI-agent execution.
 
-Relentless tells an agent to keep making useful progress until every requirement is verified or the user explicitly stops, pauses, or redirects the task. It is designed to prevent both common failure modes: giving up too early and repeating the same failed approach indefinitely.
+Relentless tells an agent to keep making useful progress until every requirement is verified or the user explicitly stops, pauses, or redirects the task. It is designed to prevent three common failure modes: giving up too early, repeating the same failed approach indefinitely, and gaining experience without learning from it.
 
 ## What the skill enforces
 
 - **No voluntary give-up response.** Errors, dead ends, uncertainty, and even suspected impossibility trigger diagnosis and another approach—not a final “I couldn't.”
 - **Adaptive retries.** An attempt ledger records what failed and why. Repeated failure within one strategy family triggers a meaningful change in source, tool, hypothesis, decomposition, or implementation.
+- **Continuous improvement.** The agent predicts outcomes before acting, compares expectations with observations, extracts scoped lessons, and applies them to later decisions. A new attempt must be better informed, not merely different.
+- **Process-level learning.** Recurring failures trigger meta-reviews that can improve the problem model, strategy, reusable tooling, or verification checks—not just the next individual attempt.
+- **Learning that survives long tasks.** The agent checkpoints its ledgers when the host provides an appropriate mechanism, and never claims cross-session memory without durable storage.
 - **Requirement-level completion.** The agent builds a checklist from the original request and does not silently drop constraints or pass off a close match as success.
 - **Thorough verification.** Claims require inspected evidence, code requires relevant checks, and important contradictions must be investigated.
 - **Current information.** Time-sensitive claims are checked against live or recently updated sources; stale pages and search snippets are not treated as proof of the present.
@@ -54,20 +57,23 @@ The skill governs behavior within an agent session. It cannot override host-enfo
 For a request to find a website with six requirements, the agent should:
 
 1. Turn all six requirements and exclusions into a checklist.
-2. Search using multiple terminology and source strategies.
+2. Before each attempt, predict what the search or inspection should reveal and why.
 3. Inspect candidates directly instead of trusting snippets.
 4. Record unknown and failed requirements honestly.
-5. When searches stall, identify why and change the query, source class, decomposition, language, or discovery method.
-6. Recheck a successful candidate's live site and current evidence before calling it a match.
-7. Continue with a different approach if no fully verified match has been found and the user has not stopped the task.
+5. Compare predictions with results, extract a specific lesson, and update the search model.
+6. When searches stall, review patterns across attempts and change the query, source class, decomposition, language, or discovery method based on those lessons.
+7. If repeated manual checking is the bottleneck, create a reusable checklist or small tool without weakening verification.
+8. Recheck a successful candidate's live site and current evidence before calling it a match.
+9. Continue with a better-informed approach if no fully verified match has been found and the user has not stopped the task.
 
 ## Skill design
 
 `SKILL.md` is self-contained and uses only portable Markdown and Agent Skills frontmatter. It defines:
 
 1. a requirement ledger and explicit definition of done;
-2. an inspect → choose → act → verify → record → adapt loop;
+2. an inspect → predict → act → verify → learn → improve loop;
 3. failure diagnosis and anti-repetition rules;
-4. research, debugging, and complex-task strategy families;
-5. coverage, evidence, correctness, and freshness checks; and
-6. strict truthfulness rules for progress, completion, and user-requested checkpoints.
+4. micro-retrospectives, knowledge ledgers, an improvement ladder, and stall-triggered meta-reviews;
+5. research, debugging, and complex-task strategy families;
+6. coverage, evidence, correctness, and freshness checks; and
+7. strict truthfulness rules for learning, progress, completion, and user-requested checkpoints.
