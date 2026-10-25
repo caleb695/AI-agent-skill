@@ -2,6 +2,8 @@
 name: relentless
 description: Persistent, self-improving, evidence-verified execution for every task. Use when work must continue through errors, dead ends, or apparent impossibility until all requirements are verifiably satisfied or the user explicitly stops, pauses, or redirects the task. Uses durable state, executable completion gates, retry and review enforcement, and a Stop hook where supported.
 compatibility: Python 3.10+ for the bundled controller. Runtime Stop enforcement requires Claude Code with skill-frontmatter hook support; other agents can run the CLI directly.
+triggers:
+  - relentless
 hooks:
   Stop:
     - hooks:
@@ -23,6 +25,8 @@ Use `scripts/relentless.py` as the task's source of truth. The prose in this ski
 On Claude Code, the skill's Stop hook runs `scripts/stop_hook.py`. It blocks a normal stop when state is missing, the task is incomplete, a review is required, or `complete` has not succeeded. It allows a stop after executable completion or an explicit user stop. A physical user interrupt remains available. Never disable the hook, delete or edit state to evade a gate, switch state files to abandon a task, or initialize a replacement task to escape unresolved work.
 
 If the controller or hook is unavailable, repair the installation or invoke the bundled script by its actual path. Do not silently fall back to prompt-only behavior or claim that executable enforcement was active. Hosts without hook support can still run the CLI directly, but you must accurately identify that runtime Stop enforcement is unavailable.
+
+**Path resolution on other hosts.** `${CLAUDE_SKILL_DIR}` exists only on Claude Code. On hosts such as OpenHands, the skill is installed in the workspace at `.agents/skills/relentless/`, so invoke the controller with its actual installed path, for example `python3 .agents/skills/relentless/scripts/relentless.py ...`. Such hosts provide no Stop hook: run the CLI at each step of the workflow, state plainly that runtime Stop enforcement is unavailable, and honor every gate the controller returns.
 
 Controller commands return machine-readable JSON. A nonzero exit is a failed gate, not a suggestion: read the `error` and `details`, address them, and rerun the appropriate command. State and audit events are stored outside the deliverable by default under the user's state directory; use `--state` only for an approved alternate location or task isolation.
 
@@ -59,7 +63,7 @@ Capture:
 
 If the request is ambiguous, make and record reasonable assumptions while continuing useful work. Ask a question only when the answer is indispensable; do not use clarification as a way to avoid attempting the task. Never assume away a hard requirement.
 
-Initialize the controller before doing substantive work, then register every atomic requirement. Claude Code expands the skill and session placeholders below; on another host, use the actual script path and an explicit `--state` path or locally available session identifier.
+Initialize the controller before doing substantive work, then register every atomic requirement. Claude Code expands the skill and session placeholders below; on another host, use the actual script path and an explicit `--state` path or locally available session identifier. Without a session identifier the controller derives a workspace-specific state file automatically, so on OpenHands the plain `--session`-less invocation below works as-is; reuse the same invocation form for every command in the task.
 
 ```bash
 python3 "${CLAUDE_SKILL_DIR}/scripts/relentless.py" --session "${CLAUDE_SESSION_ID}" init \
