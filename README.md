@@ -21,24 +21,64 @@ The controller cannot independently judge arbitrary natural-language evidence, s
 
 ## Repository layout
 
+The skill lives in the standard Agent Skills directory (`.agents/skills/<skill-name>/`) used by OpenHands, GitHub Copilot, Codex, Cursor, and other compatible hosts:
+
 ```text
-SKILL.md                    Skill instructions and Claude Code Stop-hook registration
-scripts/relentless.py       Durable controller and executable gates
-scripts/stop_hook.py        Runtime Stop enforcement backed by controller state
-tests/test_relentless.py    End-to-end CLI and hook tests
+.agents/skills/relentless/SKILL.md                    Skill instructions and Claude Code Stop-hook registration
+.agents/skills/relentless/scripts/relentless.py       Durable controller and executable gates
+.agents/skills/relentless/scripts/stop_hook.py        Runtime Stop enforcement backed by controller state
+.agents/skills/relentless/tests/                      End-to-end CLI and hook tests
+AGENTS.md                                             Guidance for agents working inside this repository
+README.md
 ```
 
 ## Requirements
 
 - Python 3.10 or newer; no third-party Python packages are required.
 - For automatic runtime Stop enforcement: a Claude Code version that supports hooks in skill frontmatter.
-- Other Agent Skills hosts can use the controller directly, but do not provide the Claude Code hook's runtime enforcement unless they implement an equivalent integration.
+- Other Agent Skills hosts (including OpenHands and OpenHands Cloud) can use the controller directly, but do not provide the Claude Code hook's runtime enforcement unless they implement an equivalent integration.
 
-## Installation
+## OpenHands Cloud
 
-Install the **whole skill**, including `scripts/`. Copying only `SKILL.md` leaves out the enforcement layer.
+The skill works in [OpenHands Cloud](https://docs.openhands.dev/overview/skills) with no extra tooling. Pick whichever flow fits:
 
-### Claude Code: project scope
+### Option 1: Use this repository as the workspace
+
+Start an OpenHands Cloud conversation on `caleb695/AI-agent-skill` (or any repo/fork that contains `.agents/skills/relentless/`). OpenHands discovers project skills from `.agents/skills/` automatically, advertises `relentless` in the available-skills catalog, and loads the full skill when the task matches. Say "use the relentless skill" (or just give it a hard task that matches the description) to invoke it.
+
+### Option 2: Download the skill into another workspace
+
+In any OpenHands Cloud conversation, run the built-in [`/add-skill`](https://docs.openhands.dev/overview/skills/adding) command:
+
+```text
+/add-skill https://github.com/caleb695/AI-agent-skill/tree/main/.agents/skills/relentless
+```
+
+This copies the whole skill (including `scripts/`) into `<workspace>/.agents/skills/relentless/`. Start a **new** conversation afterward so OpenHands rebuilds the skill catalog.
+
+### Option 3: One-click launch link
+
+Share this link to open OpenHands Cloud with the skill pre-configured from this repository (the user confirms trust before it loads):
+
+```text
+https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjoiZ2l0aHViOmNhbGViNjk1L0FJLWFnZW50LXNraWxsIiwicmVmIjoibWFpbiIsInJlcG9fcGF0aCI6Ii5hZ2VudHMvc2tpbGxzL3JlbGVudGxlc3MifV0=
+```
+
+The `plugins` parameter is the base64-encoded JSON `[{"source":"github:caleb695/AI-agent-skill","ref":"main","repo_path":".agents/skills/relentless"}]` (see the [Plugin Launcher docs](https://docs.openhands.dev/openhands/usage/cloud/plugin-launcher)).
+
+### Option 4: Make it available in every repository
+
+OpenHands loads user skills from a `.agents` repository under your GitHub account. Create a repository named `.agents`, add a `skills/` directory, and copy `.agents/skills/relentless/` into it as `skills/relentless/`. OpenHands then loads the skill for all your conversations, in any repo.
+
+### Honest limits on OpenHands
+
+OpenHands does not implement Claude Code's Stop hook, so the `hooks:` frontmatter is ignored there and **runtime stop enforcement is unavailable**. The controller CLI still enforces every other gate (state, evidence, retries, reviews, freshness, completion), and the skill instructs the agent to say so honestly. Invoke the controller as `python3 .agents/skills/relentless/scripts/relentless.py ...`; with no session ID it derives a workspace-specific state file automatically.
+
+## Claude Code installation
+
+Claude Code reads skills from `.claude/skills/`, so copy the skill directory there. Install the **whole skill**, including `scripts/`; copying only `SKILL.md` leaves out the enforcement layer.
+
+### Project scope
 
 Run from the project where you want the skill available:
 
@@ -47,26 +87,26 @@ tmp="$(mktemp -d)"
 curl -fsSL https://codeload.github.com/caleb695/AI-agent-skill/tar.gz/refs/heads/main \
   | tar -xz -C "$tmp"
 mkdir -p .claude/skills/relentless
-cp -R "$tmp/AI-agent-skill-main/." .claude/skills/relentless/
+cp -R "$tmp/AI-agent-skill-main/.agents/skills/relentless/." .claude/skills/relentless/
 rm -r "$tmp"
 ```
 
 Commit `.claude/skills/relentless/` to share the skill with the project. Invoke it explicitly with `/relentless` or ask the agent to use the relentless skill. The Stop hook registers when the skill is invoked and remains registered for that session.
 
-### Claude Code: personal scope
+### Personal scope
 
 ```sh
 tmp="$(mktemp -d)"
 curl -fsSL https://codeload.github.com/caleb695/AI-agent-skill/tar.gz/refs/heads/main \
   | tar -xz -C "$tmp"
 mkdir -p ~/.claude/skills/relentless
-cp -R "$tmp/AI-agent-skill-main/." ~/.claude/skills/relentless/
+cp -R "$tmp/AI-agent-skill-main/.agents/skills/relentless/." ~/.claude/skills/relentless/
 rm -r "$tmp"
 ```
 
-### Other compatible agents
+## Other compatible agents
 
-Copy the repository's `SKILL.md` and `scripts/` directory into `<your-skills-directory>/relentless/`, then follow the host's skill discovery instructions. Use the actual bundled script path when running controller commands. The skill remains useful without hook support, but the agent must accurately acknowledge that runtime Stop enforcement is unavailable.
+Copy the contents of `.agents/skills/relentless/` (the `SKILL.md` plus the `scripts/` directory) into your host's skills directory as `<your-skills-directory>/relentless/`, then follow the host's skill discovery instructions. Use the actual bundled script path when running controller commands. The skill remains useful without hook support, but the agent must accurately acknowledge that runtime Stop enforcement is unavailable.
 
 ## Controller workflow
 
@@ -86,17 +126,17 @@ Use `requirement-unverify` when new evidence invalidates an earlier verification
 ### Example with an explicit state file
 
 ```sh
-python3 scripts/relentless.py --state /tmp/my-task.json init \
+python3 .agents/skills/relentless/scripts/relentless.py --state /tmp/my-task.json init \
   --objective "Implement and verify the requested feature"
 
-python3 scripts/relentless.py --state /tmp/my-task.json requirement-add \
+python3 .agents/skills/relentless/scripts/relentless.py --state /tmp/my-task.json requirement-add \
   --id R1 \
   --description "The requested behavior passes its regression test" \
   --evidence-required "A passing run of the focused regression test" \
   --check-command "python3 -m pytest tests/test_feature.py -q"
 ```
 
-Global options such as `--state` and `--session` come **before** the subcommand. Run `python3 scripts/relentless.py --help` or `<command> --help` for the complete interface.
+Global options such as `--state` and `--session` come **before** the subcommand. Run `python3 .agents/skills/relentless/scripts/relentless.py --help` or `<command> --help` for the complete interface.
 
 ### Verification-command security
 
@@ -116,7 +156,7 @@ State files and audit logs are written with owner-only permissions. Do not put s
 For an explicit conversational stop, the agent records:
 
 ```sh
-python3 scripts/relentless.py --session "<session-id>" stop \
+python3 .agents/skills/relentless/scripts/relentless.py --session "<session-id>" stop \
   --user-request "The user's explicit stop, pause, or redirect"
 ```
 
@@ -131,7 +171,7 @@ The Stop hook checks durable state instead of trusting a final “done” messag
 Run the standard-library test suite:
 
 ```sh
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s .agents/skills/relentless/tests -v
 ```
 
-The tests exercise the real CLI and Stop-hook subprocesses, including successful completion, missing evidence, current-source freshness, executable check failure, duplicate retries, mandatory reviews, state persistence, user stop/resume, missing or damaged state, and unrelated-session isolation.
+The tests exercise the real CLI and Stop-hook subprocesses, including successful completion, missing evidence, current-source freshness, executable check failure, duplicate retries, mandatory reviews, state persistence, user stop/resume, missing or damaged state, and unrelated-session isolation. They also assert the OpenHands/Agent Skills layout (`.agents/skills/relentless/SKILL.md` with a directory-matching name and keyword triggers) so the skill keeps installing correctly.

@@ -42,6 +42,17 @@ class SkillStructureTest(unittest.TestCase):
         self.assertIn("Do not substitute a mental checklist", SKILL)
         self.assertIn("--check-command", SKILL)
 
+    def test_skill_lives_in_standard_agents_directory(self) -> None:
+        skill_dir = Path(__file__).resolve().parents[1]
+        repo_root = Path(__file__).resolve().parents[4]
+        expected = repo_root / ".agents" / "skills" / "relentless" / "SKILL.md"
+        self.assertEqual(expected, skill_dir / "SKILL.md")
+        self.assertTrue(expected.is_file())
+        self.assertEqual(expected.parent.name, "relentless")
+        # OpenHands keyword activation and loader-friendly frontmatter.
+        self.assertRegex(SKILL, r"(?m)^triggers:\n  - relentless\n")
+        self.assertRegex(SKILL, r"(?m)^compatibility: ")
+
     def test_numbered_protocol_sections_are_ordered(self) -> None:
         sections = [int(value) for value in re.findall(r"^## (\d+)\.", SKILL, re.MULTILINE)]
         self.assertEqual(sections, list(range(1, 8)))
