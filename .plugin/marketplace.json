@@ -1,0 +1,30 @@
+{
+  "name": "ai-agent-skill",
+  "owner": {
+    "name": "caleb695"
+  },
+  "description": "Relentless: a persistent, self-improving, evidence-verified Agent Skill for OpenHands Cloud and other compatible agents.",
+  "metadata": {
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "relentless",
+      "source": "./skills/relentless",
+      "description": "Persistent, self-improving, evidence-verified execution for every task. Continues through errors, dead ends, or apparent impossibility until all requirements are verifiably satisfied or the user explicitly stops, pauses, or redirects the task.",
+      "category": "workflow",
+      "keywords": [
+        "relentless",
+        "persistent",
+        "persistence",
+        "evidence",
+        "verification",
+        "completion",
+        "retry",
+        "review"
+      ],
+      "repository": "https://github.com/caleb695/AI-agent-skill",
+      "homepage": "https://github.com/caleb695/AI-agent-skill"
+    }
+  ]
+}
