@@ -1,0 +1,19 @@
+{
+  "name": "relentless",
+  "version": "1.0.0",
+  "description": "Persistent, self-improving, evidence-verified execution for every task. Continues through errors, dead ends, or apparent impossibility until all requirements are verifiably satisfied or the user explicitly stops, pauses, or redirects the task.",
+  "author": {
+    "name": "caleb695"
+  },
+  "repository": "https://github.com/caleb695/AI-agent-skill",
+  "keywords": [
+    "relentless",
+    "persistent",
+    "persistence",
+    "evidence",
+    "verification",
+    "completion",
+    "retry",
+    "review"
+  ]
+}

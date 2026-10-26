@@ -21,16 +21,21 @@ The controller cannot independently judge arbitrary natural-language evidence, s
 
 ## Repository layout
 
-The skill lives in the standard Agent Skills directory (`.agents/skills/<skill-name>/`) used by OpenHands, GitHub Copilot, Codex, Cursor, and other compatible hosts:
+The skill lives in the standard Agent Skills directory (`.agents/skills/<skill-name>/`) used by OpenHands, GitHub Copilot, Codex, Cursor, and other compatible hosts. The repository root also carries an OpenHands marketplace manifest so OpenHands Cloud can discover it as a plugin marketplace:
 
 ```text
+.plugin/marketplace.json                             OpenHands marketplace manifest exposing the skill as a plugin
+skills -> .agents/skills                              Standard marketplace skills path (symlink; no duplicate copy)
 .agents/skills/relentless/SKILL.md                    Skill instructions and Claude Code Stop-hook registration
+.agents/skills/relentless/.plugin/plugin.json         Plugin metadata for the OpenHands plugin entry
 .agents/skills/relentless/scripts/relentless.py       Durable controller and executable gates
 .agents/skills/relentless/scripts/stop_hook.py        Runtime Stop enforcement backed by controller state
 .agents/skills/relentless/tests/                      End-to-end CLI and hook tests
 AGENTS.md                                             Guidance for agents working inside this repository
 README.md
 ```
+
+The `skills` entry is a symlink to `.agents/skills`. OpenHands resolves marketplace plugin sources relative to the repository root and strips a leading `./`, so a source like `./.agents/skills/relentless` would be read as `agents/skills/relentless` (missing its leading dot). Pointing the manifest at the non-dotted `skills/relentless` path keeps resolution correct while the symlink avoids duplicating the skill.
 
 ## Requirements
 
@@ -40,13 +45,23 @@ README.md
 
 ## OpenHands Cloud
 
-The skill works in [OpenHands Cloud](https://docs.openhands.dev/overview/skills) with no extra tooling. Pick whichever flow fits:
+This repository is an OpenHands plugin marketplace. Its root [`.plugin/marketplace.json`](https://docs.openhands.dev/enterprise/skills-and-plugins) declares the `relentless` skill as a plugin whose source is `./skills/relentless` (the `skills` symlink points at the real `.agents/skills` directory). OpenHands reads that manifest, advertises `relentless` in the Skills and Plugin Directory, and loads the full skill (including `scripts/`) when it is attached or auto-loaded. This is what makes the repository resolve in OpenHands Cloud: without a marketplace manifest (or a top-level `skills/<name>/SKILL.md`), OpenHands reports "No plugins or skills were found in this repository."
 
-### Option 1: Use this repository as the workspace
+### Option 1: Register this repository as a marketplace (recommended)
+
+In OpenHands Cloud, open **Settings > Skills**, choose **Marketplaces → Add Repository**, and register:
+
+- **Source:** `github:caleb695/AI-agent-skill` (or the repository URL)
+- **Branch / ref:** `main`
+- **Repository path:** leave empty — the manifest is at the repository root
+
+OpenHands checks the manifest, sees the `relentless` plugin, and saves the marketplace. Enable **Auto-load** (or attach `relentless` in the Plugin Directory or a launch link) and the skill is available in the conversation.
+
+### Option 2: Use this repository as the workspace
 
 Start an OpenHands Cloud conversation on `caleb695/AI-agent-skill` (or any repo/fork that contains `.agents/skills/relentless/`). OpenHands discovers project skills from `.agents/skills/` automatically, advertises `relentless` in the available-skills catalog, and loads the full skill when the task matches. Say "use the relentless skill" (or just give it a hard task that matches the description) to invoke it.
 
-### Option 2: Download the skill into another workspace
+### Option 3: Download the skill into another workspace
 
 In any OpenHands Cloud conversation, run the built-in [`/add-skill`](https://docs.openhands.dev/overview/skills/adding) command:
 
@@ -56,7 +71,7 @@ In any OpenHands Cloud conversation, run the built-in [`/add-skill`](https://doc
 
 This copies the whole skill (including `scripts/`) into `<workspace>/.agents/skills/relentless/`. Start a **new** conversation afterward so OpenHands rebuilds the skill catalog.
 
-### Option 3: One-click launch link
+### Option 4: One-click launch link
 
 Share this link to open OpenHands Cloud with the skill pre-configured from this repository (the user confirms trust before it loads):
 
@@ -66,7 +81,7 @@ https://app.all-hands.dev/launch?plugins=W3sic291cmNlIjoiZ2l0aHViOmNhbGViNjk1L0F
 
 The `plugins` parameter is the base64-encoded JSON `[{"source":"github:caleb695/AI-agent-skill","ref":"main","repo_path":".agents/skills/relentless"}]` (see the [Plugin Launcher docs](https://docs.openhands.dev/openhands/usage/cloud/plugin-launcher)).
 
-### Option 4: Make it available in every repository
+### Option 5: Make it available in every repository
 
 OpenHands loads user skills from a `.agents` repository under your GitHub account. Create a repository named `.agents`, add a `skills/` directory, and copy `.agents/skills/relentless/` into it as `skills/relentless/`. OpenHands then loads the skill for all your conversations, in any repo.
 
